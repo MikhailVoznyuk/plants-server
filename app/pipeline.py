@@ -177,14 +177,19 @@ class Pipeline:
 
         self._save_csv(out_dir, plants_pred, clipped_defects)
 
+        overlay_url = f"/out/{req_id}/overlay.png"
+        report_url  = f"/out/{req_id}/report.json"
+        
         return {
-            "request_id": req_id,
-            "status": "OK",
-            "overlay_path": overlay_path,
-            "report_json_path": report_json_path,
-            "plants": report["plants"],
-            "defects": report["defects"],
+          "request_id": req_id,
+          "status": "OK",
+          "overlay_path": overlay_path,
+          "report_json_path": report_json_path,
+          "plants": report["plants"],
+          "defects": report["defects"],
+          "extras": {"overlay_url": overlay_url, "report_url": report_url}
         }
+
 
     # ==================== INTERNAL ====================
 
