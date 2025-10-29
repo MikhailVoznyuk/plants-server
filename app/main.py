@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app import config
+from app.routers.infer import router as infer_router
 
 app = FastAPI(title="tree-health-infer-service", version="0.1.0")
 
