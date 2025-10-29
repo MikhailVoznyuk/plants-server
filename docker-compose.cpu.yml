@@ -1,0 +1,14 @@
+version: "3.9"
+services:
+  treehealth:
+    build:
+      context: .
+      dockerfile: Dockerfile.cpu
+    image: treehealth-cpu:latest
+    env_file: .env
+    volumes:
+      - ./weights:/weights
+      - ./data:/data
+      - ./rules:/rules
+    ports:
+      - "8000:8000"

@@ -1,0 +1,20 @@
+version: "3.9"
+services:
+  treehealth:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    image: treehealth-gpu:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: ["gpu"]
+    env_file: .env
+    runtime: nvidia
+    volumes:
+      - ./weights:/weights
+      - ./data:/data
+      - ./rules:/rules
+    ports:
+      - "8000:8000"
