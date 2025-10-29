@@ -1,60 +1,49 @@
-from typing import Any, Dict
 import os
-from app import config
 from ultralytics import YOLO
+import onnxruntime as ort
+import torch
+
+from app import config
 
 class LazyModels:
-    def __init__(self):
-        self.models: Dict[str, Any] = {}
-
-    def _resolve_yolo_weights(self, path: str | None, default_name: str = "yolov8n-seg.pt") -> str:
-        p = (path or "").strip()
-        return p if (p and os.path.exists(p)) else default_name
+    def __init__(self) -> None:
+        self._plant = None
+        self._defect = None
+        self._species = None
+        self._depth = None
 
     def plant_seg(self):
-        if "plant_seg" not in self.models:
-            w = self._resolve_yolo_weights(config.PLANT_SEG_WEIGHTS, "yolov8n-seg.pt")
-            self.models["plant_seg"] = self._load_yolo_seg(w)
-        return self.models["plant_seg"]
+        if self._plant is None:
+            path = config.WEIGHTS_PLANT
+            if os.path.exists(path):
+                self._plant = YOLO(path)
+            else:
+                self._plant = YOLO("yolov8n-seg.pt")
+        return self._plant
 
     def defect_seg(self):
-        if "defect_seg" not in self.models:
-            w = self._resolve_yolo_weights(config.DEFECT_SEG_WEIGHTS, "yolov8n-seg.pt")
-            self.models["defect_seg"] = self._load_yolo_seg(w)
-        return self.models["defect_seg"]
+        if self._defect is None:
+            path = config.WEIGHTS_DEFECT
+            if os.path.exists(path):
+                self._defect = YOLO(path)
+            else:
+                self._defect = YOLO("yolov8n-seg.pt")
+        return self._defect
 
     def species_cls(self):
-        if "species_cls" not in self.models:
-            self.models["species_cls"] = self._load_species(config.SPECIES_CLS_WEIGHTS)
-        return self.models["species_cls"]
+        if self._species is None:
+            if config.SPECIES_ONNX and os.path.exists(config.SPECIES_ONNX):
+                sess = ort.InferenceSession(config.SPECIES_ONNX, providers=["CPUExecutionProvider"])
+                self._species = ("onnx", sess)
+            else:
+                self._species = ("stub", None)
+        return self._species
 
     def depth_model(self):
-        if "depth" not in self.models:
-            self.models["depth"] = self._load_depth_anything_or_midas()
-        return self.models["depth"]
-
-    def _load_yolo_seg(self, weights: str):
-        model = YOLO(weights)
-        model.fuse()
-        return model
-
-    def _load_species(self, weights: str):
-        if weights and os.path.exists(weights):
-            import onnxruntime as ort
-            sess = ort.InferenceSession(weights, providers=['CPUExecutionProvider'])
-            return ("onnx", sess)
-        else:
-            return ("stub", None)
-
-    def _load_depth_anything_or_midas(self):
-        try:
-            from depth_anything.dpt import DepthAnything
-            import torch
-            m = DepthAnything.from_pretrained("LiheYoung/depth_anything_vitl14").eval().to(config.DEVICE)
-            return ("depth_anything", m)
-        except Exception:
-            import torch
+        if self._depth is None:
+            device = torch.device(config.DEVICE)
             midas = torch.hub.load("intel-isl/MiDaS", "DPT_Hybrid")
-            midas.to(config.DEVICE).eval()
+            midas.to(device).eval()
             transforms = torch.hub.load("intel-isl/MiDaS", "transforms")
-            return ("midas", (midas, transforms))
+            self._depth = ("midas", (midas, transforms))
+        return self._depth

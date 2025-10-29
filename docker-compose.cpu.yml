@@ -1,20 +1,16 @@
-version: "3.9"
 services:
   treehealth:
     build:
       context: .
       dockerfile: Dockerfile.cpu
     image: treehealth-cpu:latest
-    env_file: .env
-    volumes:
-      - ./weights:/weights
-      - ./data:/data
-      - ./rules:/rules
+    container_name: tree-health-infer-service-treehealth-1
+    env_file:
+      - .env
     ports:
       - "8000:8000"
-    command: >
-      gunicorn app.main:app -k uvicorn.workers.UvicornWorker
-      --bind 0.0.0.0:8000
-      --workers 1
-      --timeout 1200
-      --graceful-timeout 1200
+    volumes:
+      - ./data:/data
+      - ./weights:/weights
+      - ./rules:/rules
+    restart: unless-stopped
