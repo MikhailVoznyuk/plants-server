@@ -189,32 +189,66 @@ class Pipeline:
     # ==================== INTERNAL ====================
 
     def _yolo_seg(self, model, image_bgr: np.ndarray, conf_thr: float) -> List[Dict[str, Any]]:
-        items: List[Dict[str, Any]] = []
-        results = model.predict(source=image_bgr[..., ::-1], verbose=False, conf=conf_thr, device=config.DEVICE)
-        if len(results) == 0:
-            return items
-        r = results[0]
-        if r.masks is None:
-            return items
-        masks = r.masks.data.cpu().numpy()
-        boxes = r.boxes.xyxy.cpu().numpy()
-        confs = r.boxes.conf.cpu().numpy()
-        cls_ids = r.boxes.cls.cpu().numpy().astype(int)
-        names = r.names if hasattr(r, "names") else {}
-        for i in range(masks.shape[0]):
-            mask = (masks[i] > 0.5).astype(np.uint8)
-            area = int(mask.sum())
-            x1, y1, x2, y2 = boxes[i].astype(int).tolist()
-            cls_name = names.get(cls_ids[i], str(cls_ids[i]))
-            items.append({
-                "id": i + 1,
-                "cls": cls_name,
-                "conf": float(confs[i]),
-                "bbox": [x1, y1, x2, y2],
-                "area": area,
-                "mask": mask
-            })
+    H, W = image_bgr.shape[:2]
+    # Ultralytics ждёт RGB
+    results = model.predict(source=image_bgr[..., ::-1], verbose=False, conf=conf_thr, device=config.DEVICE)
+    items: List[Dict[str, Any]] = []
+    if not results or len(results) == 0:
         return items
+
+    r = results[0]
+    # если нет масок — сразу выходим
+    if r.masks is None or r.boxes is None or r.masks.data is None:
+        return items
+
+    # имена классов
+    names = r.names if hasattr(r, "names") else {int(i): str(i) for i in np.unique(r.boxes.cls.cpu().numpy().astype(int))}
+
+    # забираем тензоры
+    masks_np = r.masks.data.cpu().numpy()        # [N, Hm, Wm] — часто НЕ равны [H, W]
+    boxes_np = r.boxes.xyxy.cpu().numpy()        # [N, 4] — как правило уже в координатах исходника
+    confs_np = r.boxes.conf.cpu().numpy()        # [N]
+    cls_np   = r.boxes.cls.cpu().numpy().astype(int)  # [N]
+
+    # гарантируем размер масок = (H, W)
+    # nearest чтобы не размыть бинарность
+    if masks_np.ndim == 3:
+        fixed_masks = []
+        for m in masks_np:
+            if m.shape[0] != H or m.shape[1] != W:
+                m_resized = cv2.resize(m.astype(np.float32), (W, H), interpolation=cv2.INTER_NEAREST)
+            else:
+                m_resized = m
+            # бинаризуем в {0,1} как uint8
+            fixed_masks.append((m_resized > 0.5).astype(np.uint8))
+        masks_np = np.stack(fixed_masks, axis=0)
+    else:
+        # на всякий случай
+        return items
+
+    N = masks_np.shape[0]
+    for i in range(N):
+        mask = masks_np[i]                              # (H, W), uint8 в {0,1}
+        area = int(mask.sum())
+        x1, y1, x2, y2 = boxes_np[i].astype(int).tolist()
+
+        # подрезаем боксы в границы изображения, вдруг YOLO выдал дроби/выход за край
+        x1 = max(0, min(W - 1, x1))
+        y1 = max(0, min(H - 1, y1))
+        x2 = max(0, min(W - 1, x2))
+        y2 = max(0, min(H - 1, y2))
+        if x2 < x1: x1, x2 = x2, x1
+        if y2 < y1: y1, y2 = y2, y1
+
+        items.append({
+            "id": i + 1,
+            "cls": names.get(int(cls_np[i]), str(int(cls_np[i]))),
+            "conf": float(confs_np[i]),
+            "bbox": [int(x1), int(y1), int(x2), int(y2)],
+            "area": area,
+            "mask": mask,   # гарантия (H, W)
+        })
+    return items
 
     def _depth_map(self, image_bgr: np.ndarray) -> np.ndarray:
         typ, obj = self.m.depth_model()
